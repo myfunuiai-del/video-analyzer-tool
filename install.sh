@@ -6,10 +6,10 @@ set -e
 echo "=== [1/4] Installing Required Packages ==="
 if command -v pkg &> /dev/null; then
     pkg update -y || true
-    pkg install -y python ffmpeg git jq
+    pkg install -y python ffmpeg git jq curl
 elif command -v apt-get &> /dev/null; then
     sudo apt-get update -y || true
-    sudo apt-get install -y python3 python3-pip ffmpeg git jq
+    sudo apt-get install -y python3 python3-pip ffmpeg git jq curl
 fi
 
 echo "=== [2/4] Installing Python Packages (yt-dlp) ==="
@@ -19,7 +19,16 @@ echo "=== [3/4] Preparing whisper.cpp & models directory ==="
 MODELS_DIR="$HOME/tools/whisper.cpp/models"
 mkdir -p "$MODELS_DIR"
 
-# Download Large v3 Turbo model if not present (~574MB)
+# 1. Download Base model (~148MB) - Used for language detection and lightweight usage
+BASE_MODEL="$MODELS_DIR/ggml-base.bin"
+if [ ! -f "$BASE_MODEL" ]; then
+    echo "[*] Downloading Whisper Base Model (ggml-base.bin)..."
+    curl -L -o "$BASE_MODEL" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin" || true
+else
+    echo "[✓] Whisper Base model already exists."
+fi
+
+# 2. Download Large v3 Turbo model (~574MB) - Recommended for English & Banglish
 TURBO_MODEL="$MODELS_DIR/ggml-large-v3-turbo-q5_0.bin"
 if [ ! -f "$TURBO_MODEL" ]; then
     echo "[*] Downloading Whisper Turbo Model (ggml-large-v3-turbo-q5_0.bin)..."
@@ -28,13 +37,15 @@ else
     echo "[✓] Whisper Turbo model already exists."
 fi
 
-# Download Base model for fast language detection (~148MB)
-BASE_MODEL="$MODELS_DIR/ggml-base.bin"
-if [ ! -f "$BASE_MODEL" ]; then
-    echo "[*] Downloading Whisper Base Model (ggml-base.bin)..."
-    curl -L -o "$BASE_MODEL" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin" || true
-else
-    echo "[✓] Whisper Base model already exists."
+# 3. Download Bengali fine-tuned medium model (~539MB) - Recommended for pure Bengali
+BN_MODEL="$MODELS_DIR/ggml-bn-medium-q5_0.bin"
+if [ ! -f "$BN_MODEL" ]; then
+    echo "[*] Checking Bengali Fine-Tuned Model (ggml-bn-medium-q5_0.bin)..."
+    # If file exists in local storage tools, copy it, else notify download
+    if [ -f "/data/user/0/ai.antigem/files/home/tools/whisper.cpp/models/ggml-bn-medium-q5_0.bin" ]; then
+        cp "/data/user/0/ai.antigem/files/home/tools/whisper.cpp/models/ggml-bn-medium-q5_0.bin" "$BN_MODEL"
+        echo "[✓] Copied local Bengali model."
+    fi
 fi
 
 echo "=== [4/4] Linking video-analyzer to PATH ==="
