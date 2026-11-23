@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+*.mp4
+*.srt
+*.jpg
+*.png
+.DS_Store
+media_analysis/
+tmp/
