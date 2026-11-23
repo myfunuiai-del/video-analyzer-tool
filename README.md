@@ -15,6 +15,16 @@
 
 ---
 
+<div align="right">
+
+**🌐 Language / ভাষা:** &nbsp; **[🇧🇩 বাংলা](#-বাংলা-সংস্করণ)** &nbsp;|&nbsp; **[🇬🇧 English](#-english-version)**
+
+</div>
+
+---
+
+# 🇧🇩 বাংলা সংস্করণ
+
 ## 📖 পরিচিতি (Overview)
 
 **Video Analyzer Tool** হলো একটি দ্রুতগতির ও রিসোর্স-অপ্টিমাইজড এআই ভিডিও বিশ্লেষণ টুল। এটি পুরো ভিডিও ডাউনলোড না করেই রিমোট স্ট্রিমিং লিঙ্ক (Facebook Reel/Watch, YouTube Shorts/Video, X/Direct Video) কিংবা লোকাল ভিডিও ফাইল থেকে অত্যন্ত দ্রুত গতিতে স্পিচ টু টেক্সট (অডিও ট্রান্সক্রিপশন), সাইলেন্স ট্রিম, টাইমস্ট্যাম্প রিম্যাপিং এবং গুরুত্বপূর্ণ ভিজ্যুয়াল ফ্রেম স্বয়ংক্রিয়ভাবে ক্যাপচার করে।
@@ -31,116 +41,163 @@
 
 ---
 
-## 🧠 Whisper মডেল গাইড (Recommended Models for Bengali & Speed)
+## 🧠 Whisper মডেল গাইড (Bengali & Fast Models)
 
-ভিডিও অ্যানালাইজার স্ক্রিপ্টটি `whisper.cpp` এর কোয়ান্টাইজড মডেলের সাহায্যে কাজ করে। কাজের ধরন অনুযায়ী সেরা মডেল নির্বাচনের নির্দেশিকা:
+ভিডিও অ্যানালাইজার স্ক্রিপ্টটি `whisper.cpp` এর কোয়ান্টাইজড মডেলের সাহায্যে কাজ করে:
 
 | মডেলের নাম | ফাইলের নাম | সাইজ | কার্যকারিতা ও কোন ক্ষেত্রে সেরা | স্পিড রেটিং |
 | :--- | :--- | :--- | :--- | :--- |
-| **Bengali Medium (Fine-Tuned)** ⭐ | `ggml-bn-medium-q5_0.bin` | ~539 MB | **খাঁটি বাংলা (Pure Bengali) ভাষার জন্য সেরা।** উচ্চারণ ও গ্রামার অত্যন্ত নিখুঁতভাবে ধরতে পারে। | ⚡⚡⚡ (সুষম) |
+| **Bengali Medium (Fine-Tuned)** ⭐ | `ggml-bn-medium-q5_0.bin` | ~539 MB | **খাঁটি বাংলা (Pure Bengali) ভাষার জন্য সেরা।** উচ্চারণ ও ব্যাকরণ অত্যন্ত নিখুঁতভাবে ধরতে পারে। | ⚡⚡⚡ (সুষম) |
 | **Large v3 Turbo (Fast & Accurate)** ⚡ | `ggml-large-v3-turbo-q5_0.bin` | ~574 MB | **সবচেয়ে দ্রুত ও অ্যাকুরেট।** ইংরেজি, মিশ্র ভাষা (Banglish) এবং সাধারণ স্পিচের জন্য প্রথম পছন্দ। | ⚡⚡⚡⚡⚡ (চরম দ্রুত) |
 | **Base Model (Lightweight)** 🪶 | `ggml-base.bin` | ~148 MB | **দ্রুত ভাষা শনাক্তকরণ (Language Detection)** ও অল্প র‍্যামের ফোনে সুপারফাস্ট ট্রান্সক্রিপশন। | ⚡⚡⚡⚡ (খুব দ্রুত) |
 | **Small Model (General)** | `ggml-small.bin` | ~487 MB | মিডিয়াম ও বেসের মাঝামাঝি সাধারণ ব্যালান্সড পারফরম্যান্স। | ⚡⚡⚡ (ভালো) |
 
-> 💡 **মডেল পাথ (Default Models Directory):**
-> স্ক্রিপ্টটি মডেলগুলো খুঁজে পায়: `$HOME/tools/whisper.cpp/models/` ফোল্ডারে।
+> 💡 **মডেল ডিরেক্টরি পাথ:** `$HOME/tools/whisper.cpp/models/`
 
-### মডেল ডাউনলোড করার কমান্ড:
-
+### মডেল ডাউনলোড কমান্ড:
 ```bash
-mkdir -p "$HOME/tools/whisper.cpp/models"
-cd "$HOME/tools/whisper.cpp/models"
+mkdir -p "$HOME/tools/whisper.cpp/models" && cd "$HOME/tools/whisper.cpp/models"
 
-# ১. লার্জ ভি৩ টার্বো মডেল (সবচেয়ে দ্রুত ও সঠিক)
+# লার্জ ভি৩ টার্বো মডেল
 curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 
-# ২. বেস মডেল (দ্রুত ভাষা ডিটেকশনের জন্য)
+# বেস মডেল (ল্যাঙ্গুয়েজ ডিটেকশন)
 curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
-
-# ৩. বাংলা স্পেশালাইজড মডেল (যদি প্রয়োজন হয়)
-# ggml-bn-medium-q5_0.bin ফাইলে সংরক্ষণ করুন
 ```
 
 ---
 
 ## 🛠️ ইনস্টলেশন (Installation)
 
-### ১. অটোমেটিক ইনস্টলেশন (One-Click Setup)
-
 ```bash
 # রিপোজিটরি ক্লোন করুন
 git clone https://github.com/myfunuiai-del/video-analyzer-tool.git
 cd video-analyzer-tool
 
-# সেটআপ স্ক্রিপ্ট রান করুন
+# সেটআপ স্ক্রিপ্ট চালান
 chmod +x install.sh
 ./install.sh
 ```
 
-### ২. ম্যানুয়াল ডিপেন্ডেন্সি ইনস্টল
-
-```bash
-# Termux (Android):
-pkg update && pkg install python ffmpeg jq curl git -y
-pip install -U yt-dlp
-
-# Ubuntu / Debian:
-sudo apt update && sudo apt install python3 python3-pip ffmpeg jq curl git -y
-pip install -U yt-dlp
-```
-
 ---
 
-## 💻 ব্যবহার বিধি (User Manual & Examples)
+## 💻 ব্যবহার বিধি (Usage Examples)
 
-### সাধারণ সিনট্যাক্স:
 ```bash
-video-analyzer "<ভিডিওর_ইউআরএল_বা_লোকাল_পাথ>"
-```
-
-### প্র্যাকটিক্যাল উদাহরণ:
-
-#### ১. ফেসবুক রিল বা ভিডিও বিশ্লেষণ:
-```bash
+# ফেসবুক ভিডিও বা রিল:
 video-analyzer "https://www.facebook.com/share/v/1DUg7LdCX4/"
-```
 
-#### ২. ইউটিউব শর্টস বা লং ভিডিও:
-```bash
+# ইউটিউব শর্টস বা ভিডিও:
 video-analyzer "https://youtube.com/shorts/vmD2IHFSutY"
-```
 
-#### ৩. ফোনের মেমোরি থেকে লোকাল ভিডিও ফাইল:
-```bash
+# লোকাল ভিডিও ফাইল:
 video-analyzer "/sdcard/Download/my_video.mp4"
 ```
 
-#### ৪. কাস্টম আউটপুট ফোল্ডার নির্ধারণ করা:
+<div align="right">
+  <a href="#-language--ভাষা--বাংলা-সংস্করণ--english-version">⬆️ শীর্ষে যান / Back to Top</a>
+</div>
+
+---
+
+# 🇬🇧 English Version
+
+## 📖 Overview
+
+**Video Analyzer Tool** is a high-speed, resource-optimized AI video intelligence and speech analysis CLI tool. It operates without downloading multi-gigabyte video files by directly tapping into remote media streams (Facebook Reels/Videos, YouTube Shorts/Videos, X, and direct media URLs) or local media files. It generates speech-to-text transcripts, trims silence, aligns timestamps with the original source, and captures targeted visual key-moment frames.
+
+---
+
+## 🌟 Key Features
+
+* 🚀 **Zero Full Video Download**: Analyze online video streams directly via `yt-dlp` and `ffmpeg` without storing heavy video files locally.
+* ✂️ **Smart Silence Trimming with Boundary Padding**: Cuts dead silence while retaining natural 80ms boundaries to prevent clipped syllables.
+* ⏱️ **Automatic Timeline Remapping**: Subtitles and extracted snapshot frames are mapped back cleanly to the source video's original timeline.
+* 🛡️ **Anti-Overheating Speed Probing**: Probes long videos (>120s) with a fast 60s sample test at 1.25x speed, preventing repeated full-length transcription runs and keeping mobile devices cool.
+* 🎯 **Targeted Visual Frame Capture**: Scans transcripts for keywords (`github`, `repo`, `tool`, `code`, `link`, `screen`) and captures HD frames with token-refresh safeguards.
+* 🌐 **Multilingual & Mixed-Language Support**: Seamlessly recognizes Bengali, English, and mixed conversational Banglish.
+
+---
+
+## 🧠 Whisper Models Guide (Speed & Bengali Accuracy)
+
+Powered by quantized models in `whisper.cpp`:
+
+| Model Name | File Name | Size | Recommended Use Case | Speed Rating |
+| :--- | :--- | :--- | :--- | :--- |
+| **Bengali Medium (Fine-Tuned)** ⭐ | `ggml-bn-medium-q5_0.bin` | ~539 MB | **Best for Pure Bengali audio.** Exceptionally accurate pronunciation and grammar handling. | ⚡⚡⚡ (Balanced) |
+| **Large v3 Turbo (Fast & Accurate)** ⚡ | `ggml-large-v3-turbo-q5_0.bin` | ~574 MB | **Fastest & Most Accurate.** Top choice for English, mixed Banglish, and general speech. | ⚡⚡⚡⚡⚡ (Ultra Fast) |
+| **Base Model (Lightweight)** 🪶 | `ggml-base.bin` | ~148 MB | **Fast language identification** and lightweight transcription on low-RAM devices. | ⚡⚡⚡⚡ (Very Fast) |
+| **Small Model (General)** | `ggml-small.bin` | ~487 MB | Balanced trade-off between speed and accuracy. | ⚡⚡⚡ (Good) |
+
+> 💡 **Default Models Directory:** `$HOME/tools/whisper.cpp/models/`
+
+### Download Models:
 ```bash
-video-analyzer "https://youtube.com/watch?v=..." -o "./output_directory"
+mkdir -p "$HOME/tools/whisper.cpp/models" && cd "$HOME/tools/whisper.cpp/models"
+
+# Large v3 Turbo (Fastest & General Multi-language)
+curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+
+# Base Model (Language Detection)
+curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 ```
 
 ---
 
-## 📂 আউটপুট রেজাল্ট ডিরেক্টরি (Output Structure)
+## 🛠️ Installation
 
-প্রতিটি অ্যানালাইসিসের পর একটি স্বতন্ত্র রান ডিরেক্টরি তৈরি হয়:
+```bash
+# Clone the repository
+git clone https://github.com/myfunuiai-del/video-analyzer-tool.git
+cd video-analyzer-tool
+
+# Run setup script
+chmod +x install.sh
+./install.sh
+```
+
+---
+
+## 💻 Usage & CLI Examples
+
+```bash
+# Facebook Reels or Videos:
+video-analyzer "https://www.facebook.com/share/v/1DUg7LdCX4/"
+
+# YouTube Shorts or Full Videos:
+video-analyzer "https://youtube.com/shorts/vmD2IHFSutY"
+
+# Local Video on Device Storage:
+video-analyzer "/sdcard/Download/my_video.mp4"
+
+# Custom Output Directory:
+video-analyzer "https://youtube.com/watch?v=..." -o "./custom_output"
+```
+
+---
+
+## 📂 Output Structure
+
+Each run outputs to a unique run folder under `~/.antigem/media_analysis/`:
 
 ```text
 ~/.antigem/media_analysis/<run_hash>_<timestamp>/
-├── analysis_manifest.json            # সম্পূর্ণ টেকনিক্যাল মেটাডাটা, ড্রিফট স্কোর ও সামারি
-├── transcript_clean.txt              # পুনরাবৃত্তি ছাড়া ফ্রেশ রিডেবল টেক্সট
-├── whisper_sub_original_timeline.srt   # আসল ভিডিওর সাথে হুবহু সিঙ্ক করা SRT সাবটাইটেল
-├── audio_1p25x_16k_mono.wav          # ট্রিম করা অপ্টিমাইজড অডিও
-└── frames/                           # স্বয়ংক্রিয়ভাবে ক্যাপচার করা স্ক্রিনশটসমূহ
+├── analysis_manifest.json            # Complete JSON metadata, drift score & timing maps
+├── transcript_clean.txt              # Clean readable transcript without rolling loops
+├── whisper_sub_original_timeline.srt   # SRT subtitles synchronized with original timeline
+├── audio_1p25x_16k_mono.wav          # Processed 16kHz audio file
+└── frames/                           # Extracted visual key frames
     ├── frame_1_15s_direct.jpg
     └── frame_2_82s_segment.jpg
 ```
 
 ---
 
-## 🤝 অবদান ও সহায়তা (Contribution)
+## 🤝 Contribution & License
 
-কোনো সমস্যা বা পরামর্শ থাকলে GitHub Issue তৈরি করুন। 
+Open for personal and open-source contributions. Distributed under the MIT License.
 
-**Star ⭐ দিয়ে রিপোজিটরিটি বুকমার্ক করে রাখুন!**
+<div align="right">
+  <a href="#-language--ভাষা--বাংলা-সংস্করণ--english-version">⬆️ Back to Top / শীর্ষে যান</a>
+</div>
