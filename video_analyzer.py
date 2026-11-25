@@ -54,7 +54,8 @@ def is_url(target):
 def get_media_metadata(url):
     print("[*] Fetching video metadata and description...")
     cmd = [
-        "yt-dlp", "--skip-download", "--dump-single-json",
+        "yt-dlp", "--extractor-args", "youtube:player_client=android,web",
+        "--skip-download", "--dump-single-json",
         "--no-playlist", "--no-warnings", url
     ]
     code, out, _ = run_cmd(cmd)
@@ -75,8 +76,9 @@ def get_media_metadata(url):
 
 def get_stream_urls(url):
     print("[*] Resolving direct media streams (No full download)...")
-    _, video_url, _ = run_cmd(["yt-dlp", "-g", "-f", "bestvideo[ext=mp4]/best[ext=mp4]/bestvideo/best", url])
-    _, audio_url, _ = run_cmd(["yt-dlp", "-g", "-f", "bestaudio/best", url])
+    yt_args = ["--extractor-args", "youtube:player_client=android,web"]
+    _, video_url, _ = run_cmd(["yt-dlp"] + yt_args + ["-g", "-f", "bestvideo[ext=mp4]/best[ext=mp4]/bestvideo/best", url])
+    _, audio_url, _ = run_cmd(["yt-dlp"] + yt_args + ["-g", "-f", "bestaudio/best", url])
     v_url = video_url.strip().split("\n")[0] if video_url.strip() else ""
     a_url = audio_url.strip().split("\n")[0] if audio_url.strip() else ""
     return v_url, a_url
@@ -84,7 +86,8 @@ def get_stream_urls(url):
 def try_fetch_online_subtitles(url, out_prefix):
     print("[*] Checking for existing official/auto-generated subtitles...")
     sub_cmd = [
-        "yt-dlp", "--skip-download", "--write-auto-sub", "--write-sub",
+        "yt-dlp", "--extractor-args", "youtube:player_client=android,web",
+        "--skip-download", "--write-auto-sub", "--write-sub",
         "--sub-lang", "bn,en,en-orig,hi,all", "--convert-subs", "srt",
         "--ffmpeg-location", "/data/user/0/ai.antigem/files/usr/bin",
         "-o", f"{out_prefix}.%(ext)s", url
@@ -470,7 +473,8 @@ def capture_frames(video_src, moments, out_dir, remote_source=None, source_durat
             if (seg_code != 0 or not os.path.isfile(segment) or os.path.getsize(segment) == 0) and remote_source:
                 section = f"*{start:.3f}-{end:.3f}"
                 seg_prefix = os.path.join(out_dir, f"{stem}_ytsegment")
-                ytdlp_cmd = ["yt-dlp", "--no-warnings", "--no-playlist", "--download-sections", section,
+                ytdlp_cmd = ["yt-dlp", "--extractor-args", "youtube:player_client=android,web",
+                             "--no-warnings", "--no-playlist", "--download-sections", section,
                              "-f", "best[ext=mp4]/best", "--force-overwrites", "-o",
                              seg_prefix + ".%(ext)s", remote_source]
                 seg_code, _, seg_err = run_cmd(ytdlp_cmd)
