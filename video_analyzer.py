@@ -9,12 +9,17 @@ import argparse
 import hashlib
 import time
 import bisect
+import urllib.request
+import urllib.error
+import base64
 from pathlib import Path
 
 MODELS_DIR = "/data/user/0/ai.antigem/files/home/tools/whisper.cpp/models"
 MODEL_TURBO = os.path.join(MODELS_DIR, "ggml-large-v3-turbo-q5_0.bin")
 MODEL_BN = os.path.join(MODELS_DIR, "ggml-bn-medium-q5_0.bin")
 MODEL_BASE = os.path.join(MODELS_DIR, "ggml-base.bin")
+CROUTER_CONFIG = os.path.expanduser("~/.gemini/claude-router/config.json")
+GEMINI_TRANSCRIBE_MODELS = ["gemini-3.5-transcribe", "gemini-3.8-flash", "gemini-3.5-flash"]
 
 KEYWORD_PATTERNS = [
     # English
@@ -296,7 +301,7 @@ def transcribe_with_whisper(wav_path, lang, out_srt_base):
     cmd = [
         "whisper-cli", "-m", model, "-f", wav_path,
         "-l", chosen_lang,
-        "-t", "4",
+        "-t", "3",
         "-bs", "1", "-bo", "1",
         "-nf",
         "-pp",
@@ -538,10 +543,204 @@ def probe_speed_quality(audio_src, kept, silence_ranges, source_duration, lang, 
         print("[!] Probe test indicated 1.25x may degrade quality; selecting standard 1.0x.")
         return 1.0
 
+def extract_urls(text):
+    if not text:
+        return []
+    urls = re.findall(r"https?://[^\s<>\"'\)\]]+", text)
+    seen, unique = set(), []
+    for u in urls:
+        u = u.rstrip(".,;:!?")
+        if u not in seen:
+            seen.add(u)
+            unique.append(u)
+    return unique
+
+def format_duration(seconds):
+    if not seconds or seconds <= 0:
+        return "unknown"
+    total = int(round(seconds))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+def check_crouter_google_api():
+    if not os.path.isfile(CROUTER_CONFIG):
+        return None, "crouter_google_api_missing", "crouter কনফিগারেশন (~/.gemini/claude-router/config.json) পাওয়া যায়নি। দয়া করে crouter-এ Google API সেট করে নিন।"
+    try:
+        with open(CROUTER_CONFIG, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception as e:
+        return None, "crouter_config_error", f"crouter কনফিগারেশন পড়তে সমস্যা হয়েছে: {e}"
+
+    gs_cfg = cfg.get("providers", {}).get("googlestudio", {})
+    if not gs_cfg.get("enabled", False):
+        return None, "crouter_google_api_disabled", "crouter-এ Google Studio API অফ (OFF) করা আছে। ব্যবহার করতে চাইলে crouter থেকে এটি অন (ON) করুন।"
+
+    keys = gs_cfg.get("keys", [])
+    valid_keys = [k.strip() for k in keys if isinstance(k, str) and k.strip()]
+    if not valid_keys:
+        return None, "crouter_google_api_missing", "crouter-এ Google API (googlestudio) সেট করা নেই। দয়া করে crouter-এ Google API সেট করে নিন।"
+
+    # Verify at least one key + model is active (mode agentic/normal is ignored)
+    last_err = ""
+    for key in valid_keys:
+        for model_name in GEMINI_TRANSCRIBE_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}?key={key}"
+            try:
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status == 200:
+                        return valid_keys, "ok", f"Google Studio API ({len(valid_keys)}টি key) ও {model_name} অ্যাক্টিভ আছে।"
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")[:180]
+                last_err = f"{model_name} (HTTP {e.code}): {err_body}"
+            except Exception as e:
+                last_err = f"{model_name}: {e}"
+    return None, "google_model_inactive", f"Google API মডেলগুলো কাজ করছে না: {last_err}"
+
+def parse_srt_text(content):
+    if not content:
+        return []
+    cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", content.strip())
+    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+    entries = []
+    blocks = re.split(r"\n\s*\n", cleaned.strip())
+    for block in blocks:
+        lines = [ln.strip() for ln in block.strip().split("\n") if ln.strip()]
+        time_idx = None
+        for idx, ln in enumerate(lines[:2]):
+            if re.match(r"(\d{1,2}:)?\d{2}:\d{2}[,\.]\d{3}\s*-->\s*(\d{1,2}:)?\d{2}:\d{2}[,\.]\d{3}", ln):
+                time_idx = idx
+                break
+        if time_idx is not None and len(lines) > time_idx + 1:
+            time_match = re.match(
+                r"((?:\d{1,2}:)?\d{2}:\d{2}[,\.]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}[,\.]\d{3})",
+                lines[time_idx]
+            )
+            if time_match:
+                s_str, e_str = time_match.group(1), time_match.group(2)
+                if s_str.count(":") == 1:
+                    s_str = "00:" + s_str
+                if e_str.count(":") == 1:
+                    e_str = "00:" + e_str
+                s_str = s_str.replace(".", ",")
+                e_str = e_str.replace(".", ",")
+                raw_text = " ".join(lines[time_idx + 1:])
+                cleaned_text = re.sub(r"<[^>]+>", "", raw_text).strip()
+                if cleaned_text:
+                    entries.append({"start": s_str, "end": e_str, "text": cleaned_text})
+    return entries
+
+def transcribe_with_google_api(audio_src, source_duration, keys, run_dir, max_duration=None):
+    total_dur = source_duration if source_duration else (max_duration or 600.0)
+    if max_duration and max_duration > 0:
+        total_dur = min(total_dur, max_duration)
+
+    chunk_seconds = 900.0
+    all_entries = []
+    offset = 0.0
+    chunk_idx = 0
+    used_model = GEMINI_TRANSCRIBE_MODELS[0]
+
+    print(f"[*] Using Google API ({len(keys)} key(s) available) with compressed MP3 audio (0% CPU heat)...")
+    while offset < total_dur:
+        chunk_idx += 1
+        chunk_dur = min(chunk_seconds, total_dur - offset)
+        if chunk_dur < 0.5:
+            break
+        chunk_mp3 = os.path.join(run_dir, f"google_chunk_{chunk_idx}.mp3")
+        cmd = [
+            "ffmpeg", "-y", "-ss", f"{offset:.3f}", "-t", f"{chunk_dur:.3f}",
+            "-i", audio_src, "-vn", "-ar", "16000", "-ac", "1", "-b:a", "24k", chunk_mp3
+        ]
+        code, _, err = run_cmd(cmd)
+        if code != 0 or not os.path.isfile(chunk_mp3) or os.path.getsize(chunk_mp3) < 200:
+            return None, None, f"Google API-এর জন্য অডিও এক্সট্র্যাক্ট করতে সমস্যা হয়েছে: {err[-200:]}"
+
+        with open(chunk_mp3, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        prompt = (
+            "Transcribe this audio verbatim in strict SubRip (.srt) subtitle format with accurate timestamps "
+            "(HH:MM:SS,mmm --> HH:MM:SS,mmm) starting from 00:00:00,000. "
+            "Keep the original spoken language (Bengali, Urdu, Hindi, English, etc.). "
+            "Output ONLY valid SRT entries without any markdown code blocks or extra commentary."
+        )
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": "audio/mp3", "data": audio_b64}}
+                ]
+            }]
+        }
+
+        text = None
+        last_err = ""
+        for model_name in GEMINI_TRANSCRIBE_MODELS:
+            for key in keys:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                    text = res["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    used_model = model_name
+                    break
+                except urllib.error.HTTPError as e:
+                    err_body = e.read().decode("utf-8", errors="replace")[:200]
+                    last_err = f"{model_name} (HTTP {e.code}): {err_body}"
+                except Exception as e:
+                    last_err = f"{model_name}: {e}"
+            if text is not None:
+                break
+
+        if text is None:
+            return None, None, f"Google API ট্রান্সক্রিপশনে ব্যর্থ হয়েছে: {last_err}"
+
+        parsed = parse_srt_text(text)
+        if parsed:
+            for item in parsed:
+                s_sec = time_str_to_seconds(item["start"]) + offset
+                e_sec = time_str_to_seconds(item["end"]) + offset
+                all_entries.append({
+                    "start": seconds_to_srt_time(s_sec),
+                    "end": seconds_to_srt_time(max(e_sec, s_sec + 0.5)),
+                    "text": item["text"]
+                })
+        elif text:
+            all_entries.append({
+                "start": seconds_to_srt_time(offset),
+                "end": seconds_to_srt_time(offset + chunk_dur),
+                "text": text
+            })
+
+        offset += chunk_dur
+
+    if not all_entries:
+        return None, None, "Google API থেকে কোনো ট্রান্সক্রিপ্ট পাওয়া যায়নি।"
+
+    srt_path = os.path.join(run_dir, "google_transcribe.srt")
+    write_srt(all_entries, srt_path)
+    print(f"[✓] Google API ({used_model}) transcription completed ({len(all_entries)} cues).")
+    return srt_path, used_model, "ok"
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze video speech and visual content quickly without phone overheating")
     parser.add_argument("target", help="Video URL or local file path")
     parser.add_argument("-o", "--outdir", default="/data/user/0/ai.antigem/files/home/.antigem/media_analysis", help="Output directory")
+    parser.add_argument("--max-duration", type=float, default=None, help="Maximum seconds from start to transcribe")
+    parser.add_argument("--allow-whisper", action="store_true", help="Allow running local Whisper fallback without confirmation prompt")
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -563,11 +762,16 @@ def main():
         if metadata.get("title"):
             print(f"[✓] Title: {metadata['title']}")
 
+    description_urls = extract_urls(metadata.get("description", ""))
     srt_file = None
     timeline_mapping = None
+    transcription_engine = None
+    google_api_notice = None
 
     if is_remote:
         srt_file = try_fetch_online_subtitles(target, os.path.join(run_dir, "online_sub"))
+        if srt_file:
+            transcription_engine = "online_subtitles"
 
     if not srt_file:
         if is_remote:
@@ -578,65 +782,78 @@ def main():
                 sys.exit(1)
             video_src = v_url or None
 
-        source_duration = probe_duration(audio_src)
-        silence_ranges = detect_silence_ranges(audio_src, source_duration) if source_duration else []
-        kept = build_kept_intervals(silence_ranges, source_duration) if source_duration else []
+        source_duration = probe_duration(audio_src) or metadata.get("duration")
 
-        lang = "auto"
-        # Initial quick check of language from raw stream or first sample if possible
-        init_wav = os.path.join(run_dir, "audio_init_sample.wav")
-        sample_kept = kept[:5] if kept else [[0.0, min(source_duration or 30.0, 30.0)]]
-        trimmed_init, _ = trim_to_kept_intervals(audio_src, init_wav, sample_kept, speed=1.0)
-        if trimmed_init and os.path.isfile(init_wav):
-            lang = detect_language(init_wav)
-            try: os.remove(init_wav)
-            except Exception: pass
-
-        # Choose speed smartly without multi-pass overhead on long videos
-        if source_duration and source_duration > 120.0:
-            target_speed = probe_speed_quality(audio_src, kept, silence_ranges, source_duration, lang)
-            candidate_speeds = [target_speed]
+        # Step 1: Check crouter for Google API & active model
+        g_keys, g_status, g_msg = check_crouter_google_api()
+        if g_keys:
+            g_srt, used_model, g_err = transcribe_with_google_api(audio_src, source_duration, g_keys, run_dir, args.max_duration)
+            if g_srt:
+                srt_file = g_srt
+                transcription_engine = f"google_api:{used_model}"
+                google_api_notice = g_msg
+            else:
+                google_api_notice = g_err
         else:
-            candidate_speeds = SPEED_STEPS
+            google_api_notice = g_msg
 
-        best_score, best_srt, best_mapping, best_wav, attempts = -1, None, None, None, []
-        for speed in candidate_speeds:
-            speed_tag = str(speed).replace(".", "p")
-            wav_file = os.path.join(run_dir, f"audio_{speed_tag}x_16k_mono.wav")
-            extracted, mapping = extract_audio_wav(
-                audio_src, wav_file, speed, kept, silence_ranges, source_duration
-            )
-            if not extracted:
-                print(f"[!] Could not prepare audio at {speed}x; trying next speed.")
-                attempts.append({"speed": speed, "result": "audio_extraction_failed"})
-                continue
+        # Step 2: Fallback to Whisper (with confirmation if not explicitly allowed)
+        if not srt_file:
+            print(f"[!] {google_api_notice}")
+            if not args.allow_whisper and args.max_duration is None:
+                dur_fmt = format_duration(source_duration)
+                options = []
+                if not source_duration or source_duration > 30:
+                    options.append({"label": "First 30 seconds (Recommended)", "seconds": 30})
+                if not source_duration or source_duration > 120:
+                    options.append({"label": "First 2 minutes", "seconds": 120})
+                if not source_duration or source_duration > 300:
+                    options.append({"label": "First 5 minutes", "seconds": 300})
+                options.append({"label": f"Full audio ({dur_fmt})", "seconds": None})
 
-            if lang == "auto":
-                lang = detect_language(wav_file)
+                confirm_payload = {
+                    "status": "whisper_confirmation_required",
+                    "google_status": g_status if not g_keys else "google_transcribe_failed",
+                    "google_message": google_api_notice,
+                    "source_duration_seconds": round(source_duration, 2) if source_duration else None,
+                    "source_duration_formatted": dur_fmt,
+                    "title": metadata.get("title", ""),
+                    "description_urls": description_urls,
+                    "suggested_options": options,
+                }
+                print("WHISPER_CONFIRMATION_REQUIRED: " + json.dumps(confirm_payload, ensure_ascii=False))
+                sys.exit(2)
 
-            attempt_srt = os.path.join(run_dir, f"whisper_sub_{speed_tag}x")
-            attempt_file = transcribe_with_whisper(wav_file, lang, attempt_srt)
-            entries = parse_srt(attempt_file) if attempt_file else []
-            processed_duration = probe_duration(wav_file) or 0.0
-            quality = transcript_quality(entries, lang, processed_duration)
-            score = quality["words"]
-            print(f"[*] Transcript quality proxy at {speed}x: {score} words across {len(entries)} cues; script ratio {quality['script_ratio']}.")
-            attempts.append({"speed": speed, **quality, "cues": len(entries)})
+            effective_duration = source_duration
+            if args.max_duration and args.max_duration > 0:
+                effective_duration = min(source_duration, args.max_duration) if source_duration else args.max_duration
 
-            if score > best_score and attempt_file:
-                best_score, best_srt, best_mapping, best_wav = score, attempt_file, mapping, wav_file
+            print(f"[*] Falling back to single-pass Whisper (1.25x speed, -t 3) for {format_duration(effective_duration)}...")
+            speed = 1.25
+            wav_file = os.path.join(run_dir, "audio_1p25x_16k_mono.wav")
+            cmd_wav = ["ffmpeg", "-y", "-ss", "0"]
+            if effective_duration:
+                cmd_wav += ["-t", f"{effective_duration:.3f}"]
+            cmd_wav += ["-i", audio_src, "-vn", "-ar", "16000", "-ac", "1", "-af", f"atempo={speed}", "-c:a", "pcm_s16le", wav_file]
+            code, _, err = run_cmd(cmd_wav)
+            if code != 0 or not os.path.isfile(wav_file):
+                print(f"[x] Error extracting audio for Whisper: {err[-300:]}")
+                sys.exit(1)
 
-            if quality["accepted"]:
-                print(f"[✓] Accepted transcript at {speed}x.")
-                break
-            print(f"[!] Transcript too short or missing at {speed}x; trying a slower speed.")
-
-        srt_file, timeline_mapping = best_srt, best_mapping
-        if timeline_mapping:
-            timeline_mapping["speed_attempts"] = attempts
-            timeline_mapping["selected_speed"] = timeline_mapping.get("speed", 1.0)
-        if srt_file:
-            print(f"[*] Processed audio retained at: {best_wav}")
+            whisper_srt_base = os.path.join(run_dir, "whisper_sub_1p25x")
+            srt_file = transcribe_with_whisper(wav_file, "auto", whisper_srt_base)
+            if srt_file:
+                transcription_engine = "whisper_1.25x_t3"
+                timeline_mapping = {
+                    "source_duration": source_duration,
+                    "processed_duration": effective_duration,
+                    "trimmed_duration": probe_duration(wav_file),
+                    "speed": speed,
+                    "kept_intervals": [[0.0, effective_duration]] if effective_duration else [],
+                    "trimming_skipped": True,
+                    "speed_attempts": [{"speed": speed, "single_pass": True}],
+                    "selected_speed": speed,
+                }
 
     if not srt_file or not os.path.isfile(srt_file):
         print("[x] No transcript available.")
@@ -676,13 +893,59 @@ def main():
         if key_moments:
             print("[!] Transcript contains visual keywords, but no video stream is available; skipping frame capture.")
 
-    summary_json = os.path.join(run_dir, "analysis_manifest.json")
+    # Move intermediate cache/temp files into delete/<project_name>
+    raw_title = metadata.get("title") or Path(target).stem or run_key
+    # Clean up project title nicely (e.g. "GodMode", remove hashtags, comments count etc.)
+    clean_title = re.sub(r"^\d+\s+comments\s*\|\s*", "", raw_title, flags=re.IGNORECASE)
+    clean_title = re.sub(r"#\S+", "", clean_title)
+    clean_title = clean_title.split("|")[0].strip()
+    safe_proj = re.sub(r"[^A-Za-z0-9._\u0980-\u09FF-]+", "_", clean_title).strip("_")[:40] or run_key
+    delete_project_dir = os.path.join(args.outdir, "delete", f"{safe_proj}_{run_key}")
+    os.makedirs(delete_project_dir, exist_ok=True)
+
+    # 1. Clean run_dir cache files (audio chunks, wavs, segment videos, temp subtitles)
+    cache_extensions = {".wav", ".mp3", ".m4a", ".aac", ".mp4", ".mkv", ".webm"}
+    for fname in os.listdir(run_dir):
+        ext = os.path.splitext(fname)[1].lower()
+        if (fname.startswith("google_chunk_") or fname.startswith("audio_") or 
+            ext in cache_extensions or fname.startswith("online_sub")):
+            src_f = os.path.join(run_dir, fname)
+            if os.path.isfile(src_f):
+                try:
+                    os.replace(src_f, os.path.join(delete_project_dir, fname))
+                except Exception:
+                    pass
+
+    # 2. Move screenshots/frames to delete folder as well so nothing clutters phone storage
+    if os.path.isdir(frames_dir):
+        for fname in os.listdir(frames_dir):
+            src_f = os.path.join(frames_dir, fname)
+            if os.path.isfile(src_f):
+                try:
+                    os.replace(src_f, os.path.join(delete_project_dir, fname))
+                except Exception:
+                    pass
+        # Update manifest image paths if needed
+        for moment in captured:
+            if moment.get("image_path"):
+                old_img = moment["image_path"]
+                new_img = os.path.join(delete_project_dir, os.path.basename(old_img))
+                if os.path.isfile(new_img):
+                    moment["image_path"] = new_img
+
+    parent_delete_dir = os.path.join(args.outdir, "delete")
+    summary_json = os.path.join(delete_project_dir, "analysis_manifest.json")
     manifest = {
         "source": target,
         "is_remote": is_remote,
+        "transcription_engine": transcription_engine,
+        "google_api_notice": google_api_notice,
         "metadata": metadata,
-        "srt_path": srt_file,
-        "clean_transcript_path": clean_txt_path,
+        "description_urls": description_urls,
+        "delete_cache_dir": delete_project_dir,
+        "delete_root_dir": parent_delete_dir,
+        "srt_path": os.path.join(delete_project_dir, os.path.basename(srt_file)) if srt_file else None,
+        "clean_transcript_path": os.path.join(delete_project_dir, os.path.basename(clean_txt_path)),
         "timeline_mapping": timeline_mapping,
         "transcript_timestamps_reference": "original_video_timeline" if timeline_mapping else "source_subtitle_timeline",
         "transcription_speed_attempts": timeline_mapping.get("speed_attempts", []) if timeline_mapping else [],
@@ -697,12 +960,33 @@ def main():
     with open(summary_json, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    # 3. Move remaining text/srt files into delete/<project_name> and remove temporary run_dir
+    for fname in os.listdir(run_dir):
+        src_f = os.path.join(run_dir, fname)
+        dst_f = os.path.join(delete_project_dir, fname)
+        if os.path.isfile(src_f) and not os.path.exists(dst_f):
+            try:
+                os.replace(src_f, dst_f)
+            except Exception:
+                pass
+
+    if os.path.isdir(frames_dir):
+        try:
+            os.rmdir(frames_dir)
+        except Exception:
+            pass
+    try:
+        os.rmdir(run_dir)
+    except Exception:
+        pass
+
+    clean_txt_final = os.path.join(delete_project_dir, os.path.basename(clean_txt_path))
     print("\n" + "="*50)
     print("FAST ANALYSIS READY")
     print(f"Title: {metadata.get('title', 'N/A')}")
     print(f"Manifest: {summary_json}")
-    print(f"Clean Transcript: {clean_txt_path}")
-    print(f"Captured Frames: {len(captured)} snapshots in {frames_dir}")
+    print(f"Clean Transcript: {clean_txt_final}")
+    print(f"Project Folder (All Files): {delete_project_dir}")
     print("="*50)
 
 if __name__ == "__main__":
