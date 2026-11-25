@@ -735,17 +735,32 @@ def transcribe_with_google_api(audio_src, source_duration, keys, run_dir, max_du
     print(f"[✓] Google API ({used_model}) transcription completed ({len(all_entries)} cues).")
     return srt_path, used_model, "ok"
 
+def is_youtube_url(url):
+    return bool(re.search(r"(?:youtube\.com|youtu\.be)", url or "", re.IGNORECASE))
+
+def is_antigem_environment():
+    # Detects if running inside AntiGem / Antigravity agent
+    return bool(os.environ.get("ANTIGRAVITY_AGENT") or os.environ.get("ANTIGRAVITY_APP_DATA_DIR"))
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze video speech and visual content quickly without phone overheating")
     parser.add_argument("target", help="Video URL or local file path")
     parser.add_argument("-o", "--outdir", default="/data/user/0/ai.antigem/files/home/.antigem/media_analysis", help="Output directory")
     parser.add_argument("--max-duration", type=float, default=None, help="Maximum seconds from start to transcribe")
     parser.add_argument("--allow-whisper", action="store_true", help="Allow running local Whisper fallback without confirmation prompt")
+    parser.add_argument("--force", action="store_true", help="Force analysis even if platform suggests native bypass")
     args = parser.parse_args()
 
-    os.makedirs(args.outdir, exist_ok=True)
     target = args.target
     is_remote = is_url(target)
+
+    # In AntiGem environment, YouTube processing is handled natively without video-analyzer unless --force is specified
+    if is_antigem_environment() and is_youtube_url(target) and not args.force:
+        print("[!] AntiGem Environment Detected: YouTube URLs are handled natively by AntiGem without requiring video-analyzer.")
+        print("[!] To force running video-analyzer anyway, re-run with --force.")
+        sys.exit(0)
+
+    os.makedirs(args.outdir, exist_ok=True)
 
     run_key = hashlib.sha1(target.encode("utf-8")).hexdigest()[:10]
     run_stamp = time.strftime('%Y%m%d-%H%M%S') + f"-{time.time_ns() % 1_000_000_000:09d}"

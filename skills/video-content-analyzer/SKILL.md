@@ -25,13 +25,26 @@ Supports both **online streaming URLs** (YouTube, Facebook, X, direct links) wit
 
 ---
 
+## Environment & Agent Routing Guidelines
+
+> [!IMPORTANT]
+> **AntiGem vs Other Agents Rule**:
+> - **In AntiGem (Antigravity):**
+>   - **YouTube URLs (`youtube.com`, `youtu.be`)**: Do NOT run the heavy `video-analyzer` CLI. AntiGem understands YouTube natively. Provide a fast, clear **native summary** following the core extraction rules (topic, spoken takeaways, key tools/repos mentioned, without heavy second-by-second timestamps).
+>   - **Other Video Sources (Facebook, X/Twitter, direct links, local video files)**: Always use `video-analyzer` following the standard rules.
+> - **In Other Agents (e.g. Claude CLI / SDK-CLI):**
+>   - Run `video-analyzer` for **ALL** sources (YouTube, Facebook, X, local files), since other agents do not have built-in YouTube understanding and rely on the full transcription and frame pipeline.
+
+---
+
 ## How to Execute
 
 ### 1. Run the Video Analyzer
-Run the single command in terminal:
+Run the command in terminal (for Facebook, X, or local files in AntiGem; or all sources in Claude):
 ```bash
 video-analyzer "<VIDEO_URL_OR_LOCAL_PATH>" -o "$HOME/.antigem/media_analysis"
 ```
+*(Note: If testing YouTube in AntiGem explicitly, append `--force` to bypass native detection).*
 
 ### 2. Handle Whisper Fallback Confirmation (Exit Code 2)
 If `video-analyzer` exits with **code 2** and prints `WHISPER_CONFIRMATION_REQUIRED: {...}`:
