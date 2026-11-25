@@ -25,24 +25,46 @@
 
 ## 📖 Overview
 
-**Video Analyzer Tool** is a high-speed, resource-optimized AI video intelligence and speech analysis CLI tool. It operates without downloading multi-gigabyte video files by directly tapping into remote media streams (Facebook Reels/Videos, YouTube Shorts/Videos, X, and direct media URLs) or local media files. It generates speech-to-text transcripts, trims silence, aligns timestamps with the original source, and captures targeted visual key-moment frames.
+**Video Analyzer Tool** is a high-speed, zero-heat AI video intelligence and speech analysis CLI tool. Designed specifically for mobile (Termux/Android) and desktop environments, it operates without downloading multi-gigabyte video files by directly tapping into remote media streams (Facebook Reels/Videos, YouTube Shorts/Videos, X, and direct media URLs) or local media files. 
+
+It provides seamless 3-tier speech transcription (Subtitles -> Cloud Google API -> Local Whisper Fallback), automatic visual frame extraction, and structured project caching.
 
 ---
 
 ## 🌟 Key Features
 
 * 🚀 **Zero Full Video Download**: Analyze online video streams directly via `yt-dlp` and `ffmpeg` without storing heavy video files locally.
+* ☁️ **0% CPU Heat with Google API**: Leverages `crouter` Google Studio API (`gemini-3.5-transcribe` / `gemini-3.8-flash`) with compressed MP3 chunks for instant, phone-cool transcription.
+* 🤖 **Dual-Agent Architecture (AntiGem & Claude)**:
+  - **In AntiGem:** Intelligently bypasses CLI execution for YouTube (handled natively) while processing Facebook, X, and local media with zero overhead.
+  - **In Claude Code / SDK-CLI:** Fully powers end-to-end multi-platform video understanding including YouTube.
+* 🛡️ **Interactive Whisper Fallback**: If Google API is disabled or inactive, exits with confirmation prompt (`code 2`) allowing users to choose transcription duration (`First 30s`, `2m`, `5m`, or `Full`) to prevent mobile overheating.
 * ✂️ **Smart Silence Trimming with Boundary Padding**: Cuts dead silence while retaining natural 80ms boundaries to prevent clipped syllables.
 * ⏱️ **Automatic Timeline Remapping**: Subtitles and extracted snapshot frames are mapped back cleanly to the source video's original timeline.
-* 🛡️ **Anti-Overheating Speed Probing**: Probes long videos (>120s) with a fast 60s sample test at 1.25x speed, preventing repeated full-length transcription runs and keeping mobile devices cool.
 * 🎯 **Targeted Visual Frame Capture**: Scans transcripts for keywords (`github`, `repo`, `tool`, `code`, `link`, `screen`) and captures HD frames with token-refresh safeguards.
+* 🧹 **Consolidated Project Cache Cleanup**: All temporary WAV files, audio chunks, and snapshot images are neatly moved into `delete/<project_name>_<id>/` with clickable cleanup links.
 * 🌐 **Multilingual & Mixed-Language Support**: Seamlessly recognizes Bengali, English, and mixed conversational Banglish.
+
+---
+
+## 🧠 Smart 3-Tier Transcription Pipeline
+
+```mermaid
+flowchart TD
+    VideoInput["Media URL or Local File"] --> CheckSub{"Tier 1: Online Subtitles?"}
+    CheckSub -- "Yes" --> SubtitlesDone["Instant Official Subtitles (0% CPU, 0 MB)"]
+    CheckSub -- "No" --> CheckGoogle{"Tier 2: crouter Google API Active?"}
+    CheckGoogle -- "Yes" --> GoogleTranscribe["gemini-3.5-transcribe via MP3 (Fast, 0% CPU Heat)"]
+    CheckGoogle -- "No / Failed" --> WhisperFallback{"Tier 3: Whisper Local Fallback"}
+    WhisperFallback --> DurationPrompt["Prompt User Duration (30s / 2m / 5m / Full)"]
+    DurationPrompt --> WhisperRun["whisper-cli at 1.25x (-t 3 threads)"]
+```
 
 ---
 
 ## 🧠 Whisper Models Guide (Speed & Bengali Accuracy)
 
-Powered by quantized models in `whisper.cpp`:
+When local fallback is required, `whisper.cpp` quantized models provide offline transcription:
 
 | Model Name | File Name | Size | Recommended Use Case | Speed Rating |
 | :--- | :--- | :--- | :--- | :--- |
@@ -52,17 +74,6 @@ Powered by quantized models in `whisper.cpp`:
 | **Small Model (General)** | `ggml-small.bin` | ~487 MB | Balanced trade-off between speed and accuracy. | ⚡⚡⚡ (Good) |
 
 > 💡 **Default Models Directory:** `$HOME/tools/whisper.cpp/models/`
-
-### Download Models:
-```bash
-mkdir -p "$HOME/tools/whisper.cpp/models" && cd "$HOME/tools/whisper.cpp/models"
-
-# Large v3 Turbo (Fastest & General Multi-language)
-curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
-
-# Base Model (Language Detection)
-curl -L -O https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
-```
 
 ---
 
@@ -89,28 +100,29 @@ video-analyzer "https://www.facebook.com/share/v/1DUg7LdCX4/"
 # YouTube Shorts or Full Videos:
 video-analyzer "https://youtube.com/shorts/vmD2IHFSutY"
 
-# Local Video on Device Storage:
-video-analyzer "/sdcard/Download/my_video.mp4"
+# Force Run on AntiGem (bypassing native YouTube prompt):
+video-analyzer "https://youtube.com/watch?v=..." --force
+
+# Allow Local Whisper Fallback without interactive prompt:
+video-analyzer "/sdcard/Download/my_video.mp4" --allow-whisper --max-duration 120
 
 # Custom Output Directory:
-video-analyzer "https://youtube.com/watch?v=..." -o "./custom_output"
+video-analyzer "https://www.facebook.com/share/..." -o "$HOME/.antigem/media_analysis"
 ```
 
 ---
 
-## 📂 Output Structure
+## 📂 Output Structure & Cache
 
-Each run outputs to a unique run folder under `~/.antigem/media_analysis/`:
+Each run creates a dedicated, self-contained project directory under `delete/` for easy review and one-tap cleanup:
 
 ```text
-~/.antigem/media_analysis/<run_hash>_<timestamp>/
-├── analysis_manifest.json            # Complete JSON metadata, drift score & timing maps
-├── transcript_clean.txt              # Clean readable transcript without rolling loops
-├── whisper_sub_original_timeline.srt   # SRT subtitles synchronized with original timeline
-├── audio_1p25x_16k_mono.wav          # Processed 16kHz audio file
-└── frames/                           # Extracted visual key frames
-    ├── frame_1_15s_direct.jpg
-    └── frame_2_82s_segment.jpg
+~/.antigem/media_analysis/delete/<project_title>_<hash>/
+├── analysis_manifest.json          # Complete JSON metadata, timeline maps, and frame info
+├── transcript_clean.txt            # Deduplicated clean readable text
+├── google_transcribe.srt           # Full SRT subtitles synchronized with original timeline
+├── frame_1_0s_direct.jpg          # Captured targeted visual frame snapshots
+└── audio_16k_mono.wav              # Retained audio chunk (if applicable)
 ```
 
 ---
